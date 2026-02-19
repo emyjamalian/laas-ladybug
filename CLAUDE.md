@@ -51,7 +51,14 @@ tools/
 
 ## Skills
 
-This project has a custom skill for analysing LaaS E2E test failures:
+Use the **Skill tool** to invoke these skills when relevant:
 
-- `.claude/skills/analayse-test-failures/` — `analyze-laas-failures` skill
+- `.claude/skills/ionos-observability-products-expert/` — `ionos-observability-products-expert` skill
+  Use for any question about LaaS/MaaS architecture, APIs, CRDs, pipelines, operators,
+  repos (laas-rest-api, laas-operators, laas-go-pkg, go-paaskit, event-gateway),
+  FluentBit, Loki, Mimir, Grafana, Kong, billing events, DCM contracts, ArgoCD, Helm,
+  or any debugging/incident response/feature development for IONOS Observability products.
+
+- `.claude/skills/analayse-test-failures/` — `analayse-test-failures` skill
+  Use when asked to analyse failed LaaS E2E test CronJobs on a Kubernetes Fragment cluster.
   Invoke with: `/analyze-laas-failures <namespace> [suite] [--since N]`
