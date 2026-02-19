@@ -46,6 +46,11 @@ func allTools() []toolDef {
 							},
 							"environment":   prop("string", "Where the issue was found: ide, local_test, ci, code_review, staging, or production"),
 							"error_message": prop("string", "The actual error or stack trace if available (optional)"),
+							"run_history": map[string]interface{}{
+								"type":        "array",
+								"items":       map[string]interface{}{"type": "string", "enum": []string{"pass", "fail"}},
+								"description": "Recent run results oldest-first, each 'pass' or 'fail'. Enables BrowserLab-style statistical confidence scoring.",
+							},
 						},
 						[]string{"description", "environment"},
 					),
