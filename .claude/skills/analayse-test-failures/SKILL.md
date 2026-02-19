@@ -2,12 +2,11 @@
 name: analyze-laas-failures
 description: >
   Analyze failed LaaS E2E test CronJobs on a Kubernetes Fragment cluster.
-  Fetches pod logs, parses Ginkgo test failures, correlates with recent GitHub
-  PRs and releases from all relevant ionos-cloud repositories, and produces a
-  root-cause report with BrowserLab-style Wilson confidence scores per suite.
+  Fetches pod logs, parses Ginkgo test failures, computes BrowserLab-style
+  Wilson confidence scores per suite, and produces a failure report.
   Invoke with the target namespace.
 argument-hint: "<namespace> [suite-name] [--since <days>]"
-allowed-tools: Bash(kubectl *), Bash(gh *)
+allowed-tools: Bash(kubectl *)
 ---
 
 # LaaS E2E Failure Analysis
@@ -130,70 +129,7 @@ FAIL! -- P Passed | F Failed | 0 Pending | 0 Skipped
 
 ---
 
-## Step 4 — Fetch Recent Changes from Relevant Repositories
-
-Check **all** of the following ionos-cloud repositories for merged PRs and releases within the **--since N** window. These are the direct dependencies of the test suite plus the test suite itself.
-
-### Primary repos (most likely to cause test failures)
-
-```bash
-# 1. The test suite itself — changes here may fix or break tests intentionally
-gh pr list --repo ionos-cloud/laas-e2e-cronjob --state merged \
-  --limit 30 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/laas-e2e-cronjob --limit 5 --json tagName,createdAt,name
-
-# 2. The logging/monitoring REST API — changes here directly affect test outcomes
-gh pr list --repo ionos-cloud/laas-rest-api --state merged \
-  --limit 30 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/laas-rest-api --limit 5 --json tagName,createdAt,name
-
-# 3. The K8s operators (fragment + root) — operator regressions cause resource state failures
-gh pr list --repo ionos-cloud/laas-operators --state merged \
-  --limit 30 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/laas-operators --limit 5 --json tagName,createdAt,name
-```
-
-### Secondary repos (shared libraries — lower blast radius but worth checking)
-
-```bash
-# 4. Shared LaaS library
-gh pr list --repo ionos-cloud/laas-go-pkg --state merged \
-  --limit 15 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/laas-go-pkg --limit 5 --json tagName,createdAt,name
-
-# 5. PaaS shared utilities
-gh pr list --repo ionos-cloud/go-paaskit --state merged \
-  --limit 15 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/go-paaskit --limit 5 --json tagName,createdAt,name
-
-# 6. Event gateway (Kafka) — relevant for event-validation and kafka-related failures
-gh pr list --repo ionos-cloud/event-gateway --state merged \
-  --limit 15 --json number,title,mergedAt,author,files \
-  --search "merged:>$(date -u -v -${SINCE}d +%Y-%m-%d 2>/dev/null || date -u -d "${SINCE} days ago" +%Y-%m-%d)"
-
-gh release list --repo ionos-cloud/event-gateway --limit 3 --json tagName,createdAt,name
-```
-
-**Note:** If a repo is private and `gh` returns 404/auth error, note it and continue — do not abort the analysis.
-
-For each PR that has a `files` list, pay attention to:
-- Which service/package it touches (`pkg/logging`, `pkg/monitoring`, `pkg/central`, etc.)
-- Whether it changes API response shapes, status fields, or timing
-- Whether it was merged close in time to the test failure
-
----
-
-## Step 5 — Compute Wilson Confidence Score per CronJob
+## Step 4 — Compute Wilson Confidence Score per CronJob
 
 For every CronJob, compute a **Wilson score lower bound** from the run history built in
 Step 1a. This gives a statistically grounded confidence that the failures are a real
@@ -223,26 +159,15 @@ is_likely_flake   = wilson_confidence < 0.40
 | `[fail, fail, pass]` | 2/3 | **0.39** | Likely flake (borderline) |
 | `[fail, pass]` | 1/2 | **0.29** | Likely flake |
 
-### Combining Wilson score with evidence-based confidence
+### Cross-suite correlation rules
 
-The final reported confidence for each root cause hypothesis uses **both signals**:
-
-| Wilson score | Evidence from Step 4 | Final confidence label |
-|---|---|---|
-| ≥ 0.67 | PR in primary repo touching failing area | 🔴 **CRITICAL** |
-| ≥ 0.50 | PR in primary repo within failure window | 🟠 **HIGH** |
-| ≥ 0.50 | PR in secondary repo, or no PR but consistent failure | 🟡 **MEDIUM** |
-| < 0.40 | Any evidence | 🟢 **LOW — likely flake** |
-| any | No code change found, no pattern match | 🟢 **LOW** |
-
-**Cross-suite correlation rules (raise confidence when met):**
-- ≥3 different suites fail with the same error type → platform-wide change; raise each by one level
-- Single suite fails repeatedly, all others pass → suite-specific; do not raise
+- ≥3 different suites fail with the same error type → note as likely systemic
+- Single suite fails repeatedly, all others pass → suite-specific
 - Failures cluster at the same time of day → consider CronJob overlap or scheduled maintenance
 
 ---
 
-## Step 6 — Output Report
+## Step 5 — Output Report
 
 Present the analysis in this format:
 
@@ -273,22 +198,6 @@ Present the analysis in this format:
 ```
 <trimmed failure message from Ginkgo, max ~20 lines per failure>
 ```
-
-**Root Cause Hypotheses:**
-
-| # | Hypothesis | Confidence | Wilson | Evidence |
-|---|---|---|---|---|
-| 1 | `<concise hypothesis>` | 🔴 CRITICAL / 🟠 HIGH / 🟡 MEDIUM / 🟢 LOW | 0.67 | `<PR/release reference + reasoning>` |
-
-**Recent changes in relevant repos:**
-
-| Repo | PR / Release | Title | Merged/Released | Relevance |
-|---|---|---|---|---|
-| `laas-rest-api` | PR #123 | Update pipeline status response | 2026-02-18 04:30 | Touches `pkg/logging/status.go` — directly affects tested field |
-
-**Recommended actions:**
-1. `<Specific, actionable recommendation based on highest-confidence hypothesis>`
-2. `<Second recommendation>`
 
 ---
 
