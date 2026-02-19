@@ -149,6 +149,7 @@ EXAMPLES:
   go run . "security: SQL injection in search handler" production
   echo "panic: runtime error: index out of range" | go run .
 
-ENVIRONMENT VARIABLE:
-  ANTHROPIC_API_KEY   Your Anthropic API key (required)`)
+ENVIRONMENT VARIABLES:
+  IONOS_API_KEY   Your IONOS AI Model Hub bearer token (required)
+  IONOS_MODEL     Model ID to use (default: meta-llama/Llama-3.3-70B-Instruct)`)
 }
