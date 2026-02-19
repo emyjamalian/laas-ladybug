@@ -1,0 +1,10 @@
+# Binaries
+laas-ladybug
+*.exe
+*.out
+
+# Go build cache
+/vendor/
+
+# Environment
+.env
